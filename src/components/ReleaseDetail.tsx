@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { ArrowLeft, ExternalLink, Music, Save } from 'lucide-react';
-import { ReleaseSubmission, ReleaseStatus, Track, Collaborator } from '../types';
-import { updateSubmissionStatus, updateSubmissionNotes } from '../store';
+import { ArrowLeft, ExternalLink, Music, Save, Pencil, X, Plus, Trash2, Check } from 'lucide-react';
+import { ReleaseSubmission, ReleaseStatus, ReleaseType, Track, Collaborator, RELEASE_TYPE_LIMITS, GENRES } from '../types';
+import { updateSubmission, getSubmissions } from '../store';
 import { StatusBadge, ReleaseTypeBadge } from './ui/Badge';
 
 interface Props {
@@ -9,16 +9,95 @@ interface Props {
   onBack: () => void;
 }
 
-export default function ReleaseDetail({ release, onBack }: Props) {
-  const [notes, setNotes] = useState(release.labelNotes || '');
-  const [status, setStatus] = useState<ReleaseStatus>(release.status);
+const emptyTrack = (): Track => ({
+  title: '', previewStart: '0:00', previewEnd: '0:30', explicit: false,
+  wavDriveLink: '', lyricsDriveLink: '', lyricsGoogleDocsLink: '',
+  producedBy: '', lyricsBy: '', mixedBy: '', masteredBy: '',
+});
+
+const emptyCollab = (): Collaborator => ({
+  name: '', role: 'artist', platformLinks: { spotify: '', appleMusic: '', anghami: '' },
+});
+
+export default function ReleaseDetail({ release: initialRelease, onBack }: Props) {
+  const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Editable state — clone the release
+  const [status, setStatus] = useState<ReleaseStatus>(initialRelease.status);
+  const [notes, setNotes] = useState(initialRelease.labelNotes || '');
+  const [mainArtist, setMainArtist] = useState(initialRelease.mainArtist);
+  const [releaseTitle, setReleaseTitle] = useState(initialRelease.releaseTitle);
+  const [releaseType, setReleaseType] = useState<ReleaseType>(initialRelease.releaseType);
+  const [releaseDate, setReleaseDate] = useState(initialRelease.releaseDate);
+  const [genre, setGenre] = useState(initialRelease.genre);
+  const [explicitContent, setExplicitContent] = useState(initialRelease.explicitContent);
+  const [coverArtDriveLink, setCoverArtDriveLink] = useState(initialRelease.coverArtDriveLink);
+  const [promoDriveLink, setPromoDriveLink] = useState(initialRelease.promoDriveLink || '');
+  const [driveFolderLink, setDriveFolderLink] = useState(initialRelease.driveFolderLink || '');
+  const [collaborations, setCollaborations] = useState<Collaborator[]>([...initialRelease.collaborations]);
+  const [features, setFeatures] = useState<Collaborator[]>([...initialRelease.features]);
+  const [tracks, setTracks] = useState<Track[]>([...initialRelease.tracks]);
+
+  // Get fresh data
+  const getFreshRelease = () => {
+    const all = getSubmissions();
+    return all.find(s => s.id === initialRelease.id) || initialRelease;
+  };
+
   const handleSave = () => {
-    updateSubmissionStatus(release.id, status);
-    updateSubmissionNotes(release.id, notes);
+    updateSubmission(initialRelease.id, {
+      status,
+      labelNotes: notes,
+      mainArtist,
+      releaseTitle,
+      releaseType,
+      releaseDate,
+      genre,
+      explicitContent,
+      coverArtDriveLink,
+      promoDriveLink: promoDriveLink || undefined,
+      driveFolderLink: driveFolderLink || undefined,
+      collaborations: collaborations.filter(c => c.name.trim()),
+      features: features.filter(f => f.name.trim()),
+      tracks,
+    });
     setSaved(true);
+    setEditing(false);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleCancel = () => {
+    const fresh = getFreshRelease();
+    setStatus(fresh.status);
+    setNotes(fresh.labelNotes || '');
+    setMainArtist(fresh.mainArtist);
+    setReleaseTitle(fresh.releaseTitle);
+    setReleaseType(fresh.releaseType);
+    setReleaseDate(fresh.releaseDate);
+    setGenre(fresh.genre);
+    setExplicitContent(fresh.explicitContent);
+    setCoverArtDriveLink(fresh.coverArtDriveLink);
+    setPromoDriveLink(fresh.promoDriveLink || '');
+    setDriveFolderLink(fresh.driveFolderLink || '');
+    setCollaborations([...fresh.collaborations]);
+    setFeatures([...fresh.features]);
+    setTracks([...fresh.tracks]);
+    setEditing(false);
+  };
+
+  const updateTrack = (idx: number, updates: Partial<Track>) => {
+    setTracks(prev => prev.map((t, i) => i === idx ? { ...t, ...updates } : t));
+  };
+
+  const addTrack = () => {
+    const lim = RELEASE_TYPE_LIMITS[releaseType];
+    if (tracks.length < lim.max) setTracks(prev => [...prev, emptyTrack()]);
+  };
+
+  const removeTrack = (idx: number) => {
+    const lim = RELEASE_TYPE_LIMITS[releaseType];
+    if (tracks.length > lim.min) setTracks(prev => prev.filter((_, i) => i !== idx));
   };
 
   const renderLink = (url: string | undefined, label: string) => {
@@ -30,34 +109,56 @@ export default function ReleaseDetail({ release, onBack }: Props) {
     );
   };
 
+  const limits = RELEASE_TYPE_LIMITS[releaseType];
+
   return (
     <div className="space-y-6 fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-all">
           <ArrowLeft className="w-4 h-4" /> Back to Dashboard
         </button>
         <div className="flex items-center gap-3">
-          <StatusBadge status={release.status} />
-          <ReleaseTypeBadge type={release.releaseType} />
+          {!editing ? (
+            <button onClick={() => setEditing(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600/20 text-violet-400 hover:bg-violet-600/30 transition-all text-sm font-medium">
+              <Pencil className="w-4 h-4" /> Edit Release
+            </button>
+          ) : (
+            <>
+              <button onClick={handleCancel} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white transition-all text-sm">
+                <X className="w-4 h-4" /> Cancel
+              </button>
+              <button onClick={handleSave} className="btn-primary flex items-center gap-2 px-4 py-2 rounded-xl text-sm">
+                <Check className="w-4 h-4" /> Save All Changes
+              </button>
+            </>
+          )}
+          {saved && <span className="text-emerald-400 text-sm font-medium">✓ Saved!</span>}
         </div>
       </div>
 
-      {/* Title */}
+      {/* Title Card */}
       <div className="glass-card rounded-2xl p-6">
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center flex-shrink-0">
             <Music className="w-7 h-7 text-violet-400" />
           </div>
           <div className="flex-1">
-            <h2 className="text-2xl font-bold">{release.releaseTitle}</h2>
-            <p className="text-zinc-400">by {release.mainArtist}</p>
-            <div className="flex flex-wrap gap-3 mt-2 text-xs text-zinc-500">
-              <span>ID: <span className="font-mono text-zinc-400">{release.id}</span></span>
-              <span>Genre: {release.genre}</span>
-              <span>Release Date: {release.releaseDate}</span>
-              <span>Explicit: {release.explicitContent ? 'Yes' : 'No'}</span>
-              <span>Submitted: {new Date(release.createdAt).toLocaleString()}</span>
+            {editing ? (
+              <div className="space-y-3">
+                <input type="text" value={releaseTitle} onChange={e => setReleaseTitle(e.target.value)} className="input-dark w-full px-3 py-2 rounded-lg text-lg font-bold" placeholder="Release Title" />
+                <input type="text" value={mainArtist} onChange={e => setMainArtist(e.target.value)} className="input-dark w-full px-3 py-2 rounded-lg text-sm" placeholder="Main Artist" />
+              </div>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold">{releaseTitle}</h2>
+                <p className="text-zinc-400">by {mainArtist}</p>
+              </>
+            )}
+            <div className="flex flex-wrap gap-3 mt-2">
+              <StatusBadge status={status} />
+              <ReleaseTypeBadge type={releaseType} />
+              <span className="text-xs text-zinc-500">ID: <span className="font-mono text-zinc-400">{initialRelease.id}</span></span>
             </div>
           </div>
         </div>
@@ -65,74 +166,228 @@ export default function ReleaseDetail({ release, onBack }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
+
+          {/* Release Info */}
+          <div className="glass-card rounded-2xl p-6">
+            <h3 className="font-bold mb-4">Release Info</h3>
+            {editing ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Release Type</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['single', 'ep', 'album'] as const).map(type => (
+                      <button key={type} onClick={() => setReleaseType(type)}
+                        className={`p-3 rounded-xl border text-center text-sm font-medium transition-all ${releaseType === type ? 'border-violet-500 bg-violet-500/10 text-violet-300' : 'border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>
+                        {type.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">Release Date</label>
+                    <input type="date" value={releaseDate} onChange={e => setReleaseDate(e.target.value)} className="input-dark w-full px-3 py-2 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">Genre</label>
+                    <select value={genre} onChange={e => setGenre(e.target.value)} className="input-dark w-full px-3 py-2 rounded-lg text-sm">
+                      {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Explicit Content</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setExplicitContent(false)} className={`px-4 py-2 rounded-lg border text-xs font-medium ${!explicitContent ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-zinc-800 text-zinc-500'}`}>No</button>
+                    <button onClick={() => setExplicitContent(true)} className={`px-4 py-2 rounded-lg border text-xs font-medium ${explicitContent ? 'border-red-500 bg-red-500/10 text-red-400' : 'border-zinc-800 text-zinc-500'}`}>Yes</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Cover Art — Google Drive Link</label>
+                  <input type="url" value={coverArtDriveLink} onChange={e => setCoverArtDriveLink(e.target.value)} className="input-dark w-full px-3 py-2 rounded-lg text-sm" placeholder="https://drive.google.com/..." />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-zinc-500">Release Date</span><p className="font-medium">{releaseDate}</p></div>
+                <div><span className="text-zinc-500">Genre</span><p className="font-medium">{genre}</p></div>
+                <div><span className="text-zinc-500">Explicit</span><p className="font-medium">{explicitContent ? 'Yes' : 'No'}</p></div>
+                <div><span className="text-zinc-500">Cover Art</span><div className="mt-1">{renderLink(coverArtDriveLink, 'View Cover Art')}</div></div>
+              </div>
+            )}
+          </div>
+
           {/* Artist Info */}
           <div className="glass-card rounded-2xl p-6">
             <h3 className="font-bold mb-4">Artist Info</h3>
-            <div className="space-y-3">
-              <div>
-                <span className="text-xs text-zinc-500">Main Artist</span>
-                <p className="font-medium">{release.mainArtist}</p>
+            {editing ? (
+              <div className="space-y-4">
+                {/* Collaborations */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-500">Collaborations</span>
+                    <button onClick={() => setCollaborations(prev => [...prev, emptyCollab()])} className="text-violet-400 text-xs flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+                  </div>
+                  {collaborations.map((c, i) => (
+                    <div key={i} className="bg-zinc-900/50 rounded-lg p-3 mb-2 space-y-2">
+                      <div className="flex gap-2">
+                        <input type="text" value={c.name} onChange={e => { const u = [...collaborations]; u[i] = { ...u[i], name: e.target.value }; setCollaborations(u); }} placeholder="Name" className="input-dark flex-1 px-3 py-2 rounded-lg text-sm" />
+                        <button onClick={() => setCollaborations(prev => prev.filter((_, j) => j !== i))} className="text-red-400"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <input type="url" value={c.platformLinks.spotify || ''} onChange={e => { const u = [...collaborations]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, spotify: e.target.value } }; setCollaborations(u); }} placeholder="Spotify" className="input-dark px-2 py-1.5 rounded-lg text-xs" />
+                        <input type="url" value={c.platformLinks.appleMusic || ''} onChange={e => { const u = [...collaborations]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, appleMusic: e.target.value } }; setCollaborations(u); }} placeholder="Apple Music" className="input-dark px-2 py-1.5 rounded-lg text-xs" />
+                        <input type="url" value={c.platformLinks.anghami || ''} onChange={e => { const u = [...collaborations]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, anghami: e.target.value } }; setCollaborations(u); }} placeholder="Anghami" className="input-dark px-2 py-1.5 rounded-lg text-xs" />
+                      </div>
+                    </div>
+                  ))}
+                  {collaborations.length === 0 && <p className="text-zinc-600 text-xs italic">None</p>}
+                </div>
+
+                {/* Features */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-500">Features</span>
+                    <button onClick={() => setFeatures(prev => [...prev, emptyCollab()])} className="text-violet-400 text-xs flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+                  </div>
+                  {features.map((f, i) => (
+                    <div key={i} className="bg-zinc-900/50 rounded-lg p-3 mb-2 space-y-2">
+                      <div className="flex gap-2">
+                        <input type="text" value={f.name} onChange={e => { const u = [...features]; u[i] = { ...u[i], name: e.target.value }; setFeatures(u); }} placeholder="Name" className="input-dark flex-1 px-3 py-2 rounded-lg text-sm" />
+                        <button onClick={() => setFeatures(prev => prev.filter((_, j) => j !== i))} className="text-red-400"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <input type="url" value={f.platformLinks.spotify || ''} onChange={e => { const u = [...features]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, spotify: e.target.value } }; setFeatures(u); }} placeholder="Spotify" className="input-dark px-2 py-1.5 rounded-lg text-xs" />
+                        <input type="url" value={f.platformLinks.appleMusic || ''} onChange={e => { const u = [...features]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, appleMusic: e.target.value } }; setFeatures(u); }} placeholder="Apple Music" className="input-dark px-2 py-1.5 rounded-lg text-xs" />
+                        <input type="url" value={f.platformLinks.anghami || ''} onChange={e => { const u = [...features]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, anghami: e.target.value } }; setFeatures(u); }} placeholder="Anghami" className="input-dark px-2 py-1.5 rounded-lg text-xs" />
+                      </div>
+                    </div>
+                  ))}
+                  {features.length === 0 && <p className="text-zinc-600 text-xs italic">None</p>}
+                </div>
               </div>
-
-              {release.collaborations.length > 0 && (
+            ) : (
+              <div className="space-y-3">
                 <div>
-                  <span className="text-xs text-zinc-500">Collaborations</span>
-                  {release.collaborations.map((c: Collaborator, i: number) => (
-                    <div key={i} className="bg-zinc-900/50 rounded-lg p-3 mt-2">
-                      <p className="font-medium text-sm">{c.name}</p>
-                      <div className="flex flex-wrap gap-3 mt-1">
-                        {renderLink(c.platformLinks.spotify, 'Spotify')}
-                        {renderLink(c.platformLinks.appleMusic, 'Apple Music')}
-                        {renderLink(c.platformLinks.anghami, 'Anghami')}
-                      </div>
-                    </div>
-                  ))}
+                  <span className="text-xs text-zinc-500">Main Artist</span>
+                  <p className="font-medium">{mainArtist}</p>
                 </div>
-              )}
-
-              {release.features.length > 0 && (
-                <div>
-                  <span className="text-xs text-zinc-500">Features</span>
-                  {release.features.map((f: Collaborator, i: number) => (
-                    <div key={i} className="bg-zinc-900/50 rounded-lg p-3 mt-2">
-                      <p className="font-medium text-sm">{f.name}</p>
-                      <div className="flex flex-wrap gap-3 mt-1">
-                        {renderLink(f.platformLinks.spotify, 'Spotify')}
-                        {renderLink(f.platformLinks.appleMusic, 'Apple Music')}
-                        {renderLink(f.platformLinks.anghami, 'Anghami')}
+                {collaborations.length > 0 && (
+                  <div>
+                    <span className="text-xs text-zinc-500">Collaborations</span>
+                    {collaborations.map((c, i) => (
+                      <div key={i} className="bg-zinc-900/50 rounded-lg p-3 mt-2">
+                        <p className="font-medium text-sm">{c.name}</p>
+                        <div className="flex flex-wrap gap-3 mt-1">
+                          {renderLink(c.platformLinks.spotify, 'Spotify')}
+                          {renderLink(c.platformLinks.appleMusic, 'Apple Music')}
+                          {renderLink(c.platformLinks.anghami, 'Anghami')}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+                {features.length > 0 && (
+                  <div>
+                    <span className="text-xs text-zinc-500">Features</span>
+                    {features.map((f, i) => (
+                      <div key={i} className="bg-zinc-900/50 rounded-lg p-3 mt-2">
+                        <p className="font-medium text-sm">{f.name}</p>
+                        <div className="flex flex-wrap gap-3 mt-1">
+                          {renderLink(f.platformLinks.spotify, 'Spotify')}
+                          {renderLink(f.platformLinks.appleMusic, 'Apple Music')}
+                          {renderLink(f.platformLinks.anghami, 'Anghami')}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Tracklist */}
           <div className="glass-card rounded-2xl p-6">
-            <h3 className="font-bold mb-4">Tracklist ({release.tracks.length} tracks)</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold">Tracklist ({tracks.length} tracks)</h3>
+              {editing && tracks.length < limits.max && (
+                <button onClick={addTrack} className="text-violet-400 text-xs flex items-center gap-1"><Plus className="w-3 h-3" /> Add Track</button>
+              )}
+            </div>
             <div className="space-y-3">
-              {release.tracks.map((track: Track, i: number) => (
+              {tracks.map((track, i) => (
                 <div key={i} className="bg-zinc-900/50 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono text-zinc-600 w-6">{String(i + 1).padStart(2, '0')}</span>
-                      <span className="font-medium text-sm">{track.title}</span>
-                      {track.explicit && <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded font-bold">E</span>}
+                  {editing ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono text-zinc-600">Track {i + 1}</span>
+                        {tracks.length > limits.min && (
+                          <button onClick={() => removeTrack(i)} className="text-red-400 text-xs flex items-center gap-1"><Trash2 className="w-3 h-3" /> Remove</button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-2">
+                          <input type="text" value={track.title} onChange={e => updateTrack(i, { title: e.target.value })} placeholder="Track title" className="input-dark w-full px-3 py-2 rounded-lg text-sm" />
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => updateTrack(i, { explicit: false })} className={`flex-1 px-2 py-2 rounded-lg border text-xs ${!track.explicit ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-zinc-800 text-zinc-500'}`}>Clean</button>
+                          <button onClick={() => updateTrack(i, { explicit: true })} className={`flex-1 px-2 py-2 rounded-lg border text-xs ${track.explicit ? 'border-red-500 bg-red-500/10 text-red-400' : 'border-zinc-800 text-zinc-500'}`}>Explicit</button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-zinc-600 mb-1">TikTok Preview Start</label>
+                          <input type="text" value={track.previewStart} onChange={e => updateTrack(i, { previewStart: e.target.value })} className="input-dark w-full px-3 py-2 rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-600 mb-1">TikTok Preview End</label>
+                          <input type="text" value={track.previewEnd} onChange={e => updateTrack(i, { previewEnd: e.target.value })} className="input-dark w-full px-3 py-2 rounded-lg text-sm" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-zinc-600 mb-1">WAV — Google Drive Link</label>
+                        <input type="url" value={track.wavDriveLink} onChange={e => updateTrack(i, { wavDriveLink: e.target.value })} className="input-dark w-full px-3 py-2 rounded-lg text-sm" placeholder="https://drive.google.com/..." />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-zinc-600 mb-1">Lyrics Drive Link</label>
+                          <input type="url" value={track.lyricsDriveLink || ''} onChange={e => updateTrack(i, { lyricsDriveLink: e.target.value })} className="input-dark w-full px-3 py-2 rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-600 mb-1">Lyrics Google Docs</label>
+                          <input type="url" value={track.lyricsGoogleDocsLink || ''} onChange={e => updateTrack(i, { lyricsGoogleDocsLink: e.target.value })} className="input-dark w-full px-3 py-2 rounded-lg text-sm" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input type="text" value={track.producedBy} onChange={e => updateTrack(i, { producedBy: e.target.value })} placeholder="Produced by" className="input-dark px-3 py-2 rounded-lg text-sm" />
+                        <input type="text" value={track.lyricsBy} onChange={e => updateTrack(i, { lyricsBy: e.target.value })} placeholder="Lyrics by" className="input-dark px-3 py-2 rounded-lg text-sm" />
+                        <input type="text" value={track.mixedBy} onChange={e => updateTrack(i, { mixedBy: e.target.value })} placeholder="Mixed by" className="input-dark px-3 py-2 rounded-lg text-sm" />
+                        <input type="text" value={track.masteredBy} onChange={e => updateTrack(i, { masteredBy: e.target.value })} placeholder="Mastered by" className="input-dark px-3 py-2 rounded-lg text-sm" />
+                      </div>
                     </div>
-                    <span className="text-xs text-zinc-500">{track.previewStart} - {track.previewEnd}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-zinc-500 mt-2">
-                    {track.producedBy && <span>Produced: {track.producedBy}</span>}
-                    {track.lyricsBy && <span>Lyrics: {track.lyricsBy}</span>}
-                    {track.mixedBy && <span>Mixed: {track.mixedBy}</span>}
-                    {track.masteredBy && <span>Mastered: {track.masteredBy}</span>}
-                  </div>
-                  <div className="flex flex-wrap gap-3 mt-2">
-                    {renderLink(track.wavDriveLink, 'WAV File')}
-                    {renderLink(track.lyricsDriveLink, 'Lyrics File')}
-                    {renderLink(track.lyricsGoogleDocsLink, 'Lyrics Doc')}
-                  </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-zinc-600 w-6">{String(i + 1).padStart(2, '0')}</span>
+                          <span className="font-medium text-sm">{track.title}</span>
+                          {track.explicit && <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded font-bold">E</span>}
+                        </div>
+                        <span className="text-xs text-zinc-500">{track.previewStart} - {track.previewEnd}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-zinc-500 mt-2">
+                        {track.producedBy && <span>Produced: {track.producedBy}</span>}
+                        {track.lyricsBy && <span>Lyrics: {track.lyricsBy}</span>}
+                        {track.mixedBy && <span>Mixed: {track.mixedBy}</span>}
+                        {track.masteredBy && <span>Mastered: {track.masteredBy}</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-2">
+                        {renderLink(track.wavDriveLink, 'WAV File')}
+                        {renderLink(track.lyricsDriveLink, 'Lyrics File')}
+                        {renderLink(track.lyricsGoogleDocsLink, 'Lyrics Doc')}
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -141,13 +396,27 @@ export default function ReleaseDetail({ release, onBack }: Props) {
           {/* Files & Links */}
           <div className="glass-card rounded-2xl p-6">
             <h3 className="font-bold mb-4">Files & Links</h3>
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-4">
-                {renderLink(release.coverArtDriveLink, 'Cover Art (3000×3000)')}
-                {renderLink(release.promoDriveLink, 'Promo Materials')}
-                {renderLink(release.driveFolderLink, 'Drive Folder')}
+            {editing ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Promo Materials — Drive Link</label>
+                  <input type="url" value={promoDriveLink} onChange={e => setPromoDriveLink(e.target.value)} className="input-dark w-full px-3 py-2 rounded-lg text-sm" placeholder="https://drive.google.com/..." />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Main Drive Folder Link</label>
+                  <input type="url" value={driveFolderLink} onChange={e => setDriveFolderLink(e.target.value)} className="input-dark w-full px-3 py-2 rounded-lg text-sm" placeholder="https://drive.google.com/..." />
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-wrap gap-4">
+                {renderLink(coverArtDriveLink, 'Cover Art (3000×3000)')}
+                {renderLink(promoDriveLink, 'Promo Materials')}
+                {renderLink(driveFolderLink, 'Drive Folder')}
+                {!coverArtDriveLink && !promoDriveLink && !driveFolderLink && (
+                  <p className="text-zinc-600 text-sm italic">No additional links</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -185,7 +454,7 @@ export default function ReleaseDetail({ release, onBack }: Props) {
                 className="btn-primary w-full py-2.5 rounded-lg flex items-center justify-center gap-2 text-sm"
               >
                 <Save className="w-4 h-4" />
-                {saved ? 'Saved!' : 'Save Changes'}
+                {saved ? '✓ Saved!' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -195,25 +464,33 @@ export default function ReleaseDetail({ release, onBack }: Props) {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-zinc-500">Type</span>
-                <span className="uppercase font-medium">{release.releaseType}</span>
+                <span className="uppercase font-medium">{releaseType}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500">Tracks</span>
-                <span className="font-medium">{release.tracks.length}</span>
+                <span className="font-medium">{tracks.length}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500">Genre</span>
-                <span className="font-medium">{release.genre}</span>
+                <span className="font-medium">{genre}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500">Release</span>
-                <span className="font-medium">{release.releaseDate}</span>
+                <span className="font-medium">{releaseDate}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500">Rights</span>
-                <span className={`font-medium ${release.rightsConfirmed ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {release.rightsConfirmed ? 'Confirmed' : 'Not confirmed'}
+                <span className={`font-medium ${initialRelease.rightsConfirmed ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {initialRelease.rightsConfirmed ? 'Confirmed' : 'Not confirmed'}
                 </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Submitted</span>
+                <span className="font-medium text-xs">{new Date(initialRelease.createdAt).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Updated</span>
+                <span className="font-medium text-xs">{new Date(initialRelease.updatedAt).toLocaleDateString()}</span>
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LayoutDashboard, Settings, LogOut, Music2 } from 'lucide-react';
-import { ReleaseSubmission } from './types';
-import { getAdminSettings, isAdminLoggedIn, logoutAdmin } from './store';
+import { ReleaseSubmission, AdminSettings, DEFAULT_ADMIN_SETTINGS } from './types';
+import { getAdminSettings, getPublicBranding, isAdminLoggedIn, logoutAdmin, fetchPublicBranding } from './store';
 import SubmissionForm from './components/SubmissionForm';
 import AdminLogin from './components/AdminLogin';
 import Dashboard from './components/Dashboard';
@@ -17,7 +17,18 @@ function App() {
   const [selectedRelease, setSelectedRelease] = useState<ReleaseSubmission | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const settings = getAdminSettings();
+  // Public branding state
+  const [publicBranding, setPublicBranding] = useState<AdminSettings>(() => {
+    // Start with locally cached branding for instant render
+    const local = getPublicBranding();
+    return {
+      ...DEFAULT_ADMIN_SETTINGS,
+      companyName: local.companyName,
+      companyLogo: local.companyLogo,
+      formWelcomeText: local.formWelcomeText,
+      formDescription: local.formDescription,
+    };
+  });
 
   // Check URL hash for admin route
   useEffect(() => {
@@ -30,12 +41,22 @@ function App() {
     return () => window.removeEventListener('hashchange', checkHash);
   }, []);
 
-  // Listen for storage events to refresh
+  // Load branding from Google Sheets (async, updates after initial render)
   useEffect(() => {
-    const handler = () => setRefreshKey(k => k + 1);
-    window.addEventListener('storage', handler);
-    return () => window.removeEventListener('storage', handler);
-  }, []);
+    const loadBranding = async () => {
+      const sheetBranding = await fetchPublicBranding();
+      if (sheetBranding) {
+        setPublicBranding(prev => ({
+          ...prev,
+          companyName: sheetBranding.companyName || prev.companyName,
+          companyLogo: sheetBranding.companyLogo || prev.companyLogo,
+          formWelcomeText: sheetBranding.formWelcomeText || prev.formWelcomeText,
+          formDescription: sheetBranding.formDescription || prev.formDescription,
+        }));
+      }
+    };
+    loadBranding();
+  }, [refreshKey]);
 
   const handleLogout = () => {
     logoutAdmin();
@@ -49,13 +70,29 @@ function App() {
     setAdminView('detail');
   };
 
+  const handleSettingsSaved = () => {
+    // Refresh branding from localStorage immediately after admin saves
+    const fresh = getAdminSettings();
+    setPublicBranding(prev => ({
+      ...prev,
+      companyName: fresh.companyName,
+      companyLogo: fresh.companyLogo,
+      formWelcomeText: fresh.formWelcomeText,
+      formDescription: fresh.formDescription,
+    }));
+    setRefreshKey(k => k + 1);
+  };
+
+  // Get admin settings for admin panel display
+  const adminSettings = getAdminSettings();
+
   // ═══════════════════════════════
   // PUBLIC: Submission Form (main page)
   // ═══════════════════════════════
   if (!isAdmin) {
     return (
       <SubmissionForm
-        settings={settings}
+        settings={publicBranding}
         onSubmitted={() => setRefreshKey(k => k + 1)}
       />
     );
@@ -77,9 +114,11 @@ function App() {
       <aside className="w-64 border-r border-white/5 bg-black/40 backdrop-blur-xl flex flex-col fixed h-full z-40 hidden lg:flex">
         <div className="p-5 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <img src={settings.companyLogo} alt={settings.companyName} className="h-10 w-10 object-contain rounded-lg" />
+            {adminSettings.companyLogo && (
+              <img src={adminSettings.companyLogo} alt={adminSettings.companyName} className="h-10 w-10 object-contain rounded-lg" />
+            )}
             <div>
-              <h1 className="font-bold text-sm">{settings.companyName}</h1>
+              <h1 className="font-bold text-sm">{adminSettings.companyName}</h1>
               <p className="text-xs text-zinc-500">Admin Panel</p>
             </div>
           </div>
@@ -121,8 +160,10 @@ function App() {
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/5">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <img src={settings.companyLogo} alt={settings.companyName} className="h-8 w-8 object-contain rounded-lg" />
-            <span className="font-bold text-sm">{settings.companyName}</span>
+            {adminSettings.companyLogo && (
+              <img src={adminSettings.companyLogo} alt={adminSettings.companyName} className="h-8 w-8 object-contain rounded-lg" />
+            )}
+            <span className="font-bold text-sm">{adminSettings.companyName}</span>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -161,7 +202,7 @@ function App() {
           )}
           {adminView === 'settings' && (
             <AdminSettingsPanel
-              onSaved={() => setRefreshKey(k => k + 1)}
+              onSaved={handleSettingsSaved}
             />
           )}
         </div>

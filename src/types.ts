@@ -71,6 +71,7 @@ export interface AdminSettings {
   formDescription: string;
   notificationEmail?: string;
   discordWebhook?: string;
+  googleSheetsWebhook?: string;
 }
 
 export const RELEASE_TYPE_LIMITS: Record<ReleaseType, { min: number; max: number; label: string }> = {
@@ -94,4 +95,5 @@ export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   formDescription: 'Fill out the form below to submit your music release to In Lights.',
   notificationEmail: '',
   discordWebhook: '',
+  googleSheetsWebhook: '',
 };

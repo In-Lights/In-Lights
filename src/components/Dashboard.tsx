@@ -40,14 +40,7 @@ export default function Dashboard({ onViewRelease, refreshKey }: Props) {
   }, [submissions, statusFilter, search, sortBy]);
 
   const handleExport = () => {
-    const csv = exportToCSV(filtered);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `releases-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV(filtered);
   };
 
   const handleDelete = (id: string) => {
