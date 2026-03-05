@@ -1,26 +1,27 @@
 import { useState } from 'react';
 import { Music, User, Disc3, Upload, ChevronRight, ChevronLeft, Plus, Trash2, CheckCircle2, ExternalLink } from 'lucide-react';
-import { Track, Collaborator, ReleaseType, RELEASE_TYPE_LIMITS, GENRES, ReleaseSubmission, AdminSettings } from '../types';
-import { addSubmission } from '../store';
+import { Track, TrackCredits, Collaborator, ReleaseType, ReleaseSubmission, AdminSettings } from '../types';
+import { submitRelease, GENRES, RELEASE_TYPE_LIMITS } from '../store';
 
-const emptyTrack = (): Track => ({
-  title: '',
-  previewStart: '0:00',
-  previewEnd: '0:30',
-  explicit: false,
-  wavDriveLink: '',
-  lyricsDriveLink: '',
-  lyricsGoogleDocsLink: '',
+const emptyCredits = (): TrackCredits => ({
   producedBy: '',
   lyricsBy: '',
   mixedBy: '',
   masteredBy: '',
 });
 
+const emptyTrack = (): Track => ({
+  title: '',
+  tiktokPreview: '0:00 - 0:30',
+  explicit: false,
+  wavDriveLink: '',
+  lyricsDocsLink: '',
+  credits: emptyCredits(),
+});
+
 const emptyCollab = (): Collaborator => ({
   name: '',
-  role: 'artist',
-  platformLinks: { spotify: '', appleMusic: '', anghami: '' },
+  platforms: { spotify: '', appleMusic: '', anghami: '' },
 });
 
 interface Props {
@@ -32,6 +33,7 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
   const [step, setStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [submissionId, setSubmissionId] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   // Step 1: Artist Info
   const [mainArtist, setMainArtist] = useState('');
@@ -52,12 +54,17 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
   // Step 4: Files & Links
   const [promoDriveLink, setPromoDriveLink] = useState('');
   const [driveFolderLink, setDriveFolderLink] = useState('');
+  const [useAllInOneDrive, setUseAllInOneDrive] = useState(false);
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
 
   const limits = RELEASE_TYPE_LIMITS[releaseType];
 
   const updateTrack = (idx: number, updates: Partial<Track>) => {
     setTracks(prev => prev.map((t, i) => i === idx ? { ...t, ...updates } : t));
+  };
+
+  const updateTrackCredits = (idx: number, updates: Partial<TrackCredits>) => {
+    setTracks(prev => prev.map((t, i) => i === idx ? { ...t, credits: { ...t.credits, ...updates } } : t));
   };
 
   const addTrack = () => {
@@ -81,28 +88,33 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
   // Validations per step
   const isStep1Valid = mainArtist.trim().length > 0;
   const isStep2Valid = releaseTitle.trim().length > 0 && releaseDate.length > 0 && genre.length > 0 && coverArtDriveLink.trim().length > 0;
-  const isStep3Valid = tracks.length >= limits.min && tracks.every(t => t.title.trim() && t.wavDriveLink.trim());
+  const isStep3Valid = useAllInOneDrive
+    ? tracks.length >= limits.min && tracks.every(t => t.title.trim())
+    : tracks.length >= limits.min && tracks.every(t => t.title.trim() && t.wavDriveLink.trim());
   const isStep4Valid = rightsConfirmed;
 
-  const handleSubmit = () => {
-    const data: Omit<ReleaseSubmission, 'id' | 'createdAt' | 'updatedAt' | 'status'> = {
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    const data: Omit<ReleaseSubmission, 'id' | 'status' | 'submittedAt' | 'labelNotes'> = {
       mainArtist,
       collaborations: collaborations.filter(c => c.name.trim()),
       features: features.filter(f => f.name.trim()),
       releaseType,
       releaseTitle,
       releaseDate,
-      explicitContent,
+      explicit: explicitContent,
       genre,
       coverArtDriveLink,
       tracks,
-      promoDriveLink: promoDriveLink || undefined,
-      driveFolderLink: driveFolderLink || undefined,
-      rightsConfirmed,
+      promoDriveLink,
+      driveFolderLink,
+      useAllInOneDrive,
+      agreement: rightsConfirmed,
     };
-    const result = addSubmission(data);
+    const result = await submitRelease(data);
     setSubmissionId(result.id);
     setSubmitted(true);
+    setSubmitting(false);
     onSubmitted?.();
   };
 
@@ -120,7 +132,7 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
             <p className="text-lg font-mono font-bold text-violet-400">{submissionId}</p>
           </div>
           <button
-            onClick={() => { setSubmitted(false); setStep(0); setMainArtist(''); setCollaborations([]); setFeatures([]); setReleaseType('single'); setReleaseTitle(''); setReleaseDate(''); setExplicitContent(false); setGenre(''); setCoverArtDriveLink(''); setTracks([emptyTrack()]); setPromoDriveLink(''); setDriveFolderLink(''); setRightsConfirmed(false); }}
+            onClick={() => { setSubmitted(false); setStep(0); setMainArtist(''); setCollaborations([]); setFeatures([]); setReleaseType('single'); setReleaseTitle(''); setReleaseDate(''); setExplicitContent(false); setGenre(''); setCoverArtDriveLink(''); setTracks([emptyTrack()]); setPromoDriveLink(''); setDriveFolderLink(''); setUseAllInOneDrive(false); setRightsConfirmed(false); }}
             className="btn-primary px-6 py-3 rounded-xl"
           >
             Submit Another Release
@@ -145,7 +157,7 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
           <img src={settings.companyLogo} alt={settings.companyName} className="h-10 w-10 object-contain rounded-lg" />
           <div>
             <h1 className="font-bold text-lg">{settings.companyName}</h1>
-            <p className="text-xs text-zinc-500">{settings.formWelcomeText}</p>
+            <p className="text-xs text-zinc-500">{settings.welcomeText}</p>
           </div>
         </div>
       </header>
@@ -223,8 +235,8 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
                       <input
                         key={platform}
                         type="url"
-                        value={c.platformLinks[platform] || ''}
-                        onChange={e => { const u = [...collaborations]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, [platform]: e.target.value } }; setCollaborations(u); }}
+                        value={c.platforms[platform] || ''}
+                        onChange={e => { const u = [...collaborations]; u[i] = { ...u[i], platforms: { ...u[i].platforms, [platform]: e.target.value } }; setCollaborations(u); }}
                         placeholder={platform === 'appleMusic' ? 'Apple Music link' : platform === 'anghami' ? 'Anghami link' : 'Spotify link'}
                         className="input-dark px-3 py-2 rounded-lg text-xs"
                       />
@@ -265,8 +277,8 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
                       <input
                         key={platform}
                         type="url"
-                        value={f.platformLinks[platform] || ''}
-                        onChange={e => { const u = [...features]; u[i] = { ...u[i], platformLinks: { ...u[i].platformLinks, [platform]: e.target.value } }; setFeatures(u); }}
+                        value={f.platforms[platform] || ''}
+                        onChange={e => { const u = [...features]; u[i] = { ...u[i], platforms: { ...u[i].platforms, [platform]: e.target.value } }; setFeatures(u); }}
                         placeholder={platform === 'appleMusic' ? 'Apple Music link' : platform === 'anghami' ? 'Anghami link' : 'Spotify link'}
                         className="input-dark px-3 py-2 rounded-lg text-xs"
                       />
@@ -354,7 +366,7 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
                     className="input-dark w-full px-4 py-3 rounded-xl"
                   >
                     <option value="">Select genre</option>
-                    {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                    {GENRES.map((g: string) => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
               </div>
@@ -413,7 +425,7 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
               <div>
                 <h2 className="text-2xl font-bold mb-1">Tracklist</h2>
                 <p className="text-zinc-500 text-sm">
-                  {limits.label} — {tracks.length}/{limits.max} tracks (min {limits.min})
+                  {releaseType.toUpperCase()} — {tracks.length}/{limits.max} tracks (min {limits.min})
                 </p>
               </div>
               {tracks.length < limits.max && (
@@ -421,6 +433,22 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
                   <Plus className="w-4 h-4" /> Add Track
                 </button>
               )}
+            </div>
+
+            {/* All-in-one Drive toggle */}
+            <div className="glass-card rounded-2xl p-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useAllInOneDrive}
+                  onChange={e => setUseAllInOneDrive(e.target.checked)}
+                  className="w-5 h-5 accent-violet-600"
+                />
+                <div>
+                  <span className="text-sm font-medium">I have all files in one Google Drive folder</span>
+                  <p className="text-xs text-zinc-500">Skip individual WAV/lyrics links per track — just provide the folder link in the next step</p>
+                </div>
+              </label>
             </div>
 
             {tracks.map((track, idx) => (
@@ -462,67 +490,50 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
                 </div>
 
                 {/* TikTok Preview Time */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">Preview/TikTok Start</label>
-                    <input
-                      type="text"
-                      value={track.previewStart}
-                      onChange={e => updateTrack(idx, { previewStart: e.target.value })}
-                      placeholder="0:00"
-                      className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">Preview/TikTok End</label>
-                    <input
-                      type="text"
-                      value={track.previewEnd}
-                      onChange={e => updateTrack(idx, { previewEnd: e.target.value })}
-                      placeholder="0:30"
-                      className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
-                    />
-                  </div>
-                </div>
-
-                {/* WAV Drive Link */}
                 <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">WAV File — Google Drive Link <span className="text-red-400">*</span></label>
-                  <div className="flex items-center gap-2">
-                    <ExternalLink className="w-4 h-4 text-zinc-500 flex-shrink-0" />
-                    <input
-                      type="url"
-                      value={track.wavDriveLink}
-                      onChange={e => updateTrack(idx, { wavDriveLink: e.target.value })}
-                      placeholder="https://drive.google.com/file/d/..."
-                      className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
-                    />
-                  </div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">TikTok / Preview Time</label>
+                  <input
+                    type="text"
+                    value={track.tiktokPreview}
+                    onChange={e => updateTrack(idx, { tiktokPreview: e.target.value })}
+                    placeholder="0:00 - 0:30"
+                    className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
+                  />
                 </div>
 
-                {/* Lyrics */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* WAV Drive Link — hidden if all-in-one */}
+                {!useAllInOneDrive && (
                   <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">Lyrics — Google Drive Link</label>
-                    <input
-                      type="url"
-                      value={track.lyricsDriveLink || ''}
-                      onChange={e => updateTrack(idx, { lyricsDriveLink: e.target.value })}
-                      placeholder="Drive link to lyrics file"
-                      className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
-                    />
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">WAV File — Google Drive Link <span className="text-red-400">*</span></label>
+                    <div className="flex items-center gap-2">
+                      <ExternalLink className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                      <input
+                        type="url"
+                        value={track.wavDriveLink}
+                        onChange={e => updateTrack(idx, { wavDriveLink: e.target.value })}
+                        placeholder="https://drive.google.com/file/d/..."
+                        className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
+                      />
+                    </div>
                   </div>
+                )}
+
+                {/* Lyrics — hidden if all-in-one */}
+                {!useAllInOneDrive && (
                   <div>
                     <label className="block text-xs font-medium text-zinc-400 mb-1">Lyrics — Google Docs Link</label>
-                    <input
-                      type="url"
-                      value={track.lyricsGoogleDocsLink || ''}
-                      onChange={e => updateTrack(idx, { lyricsGoogleDocsLink: e.target.value })}
-                      placeholder="Google Docs link"
-                      className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
-                    />
+                    <div className="flex items-center gap-2">
+                      <ExternalLink className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                      <input
+                        type="url"
+                        value={track.lyricsDocsLink || ''}
+                        onChange={e => updateTrack(idx, { lyricsDocsLink: e.target.value })}
+                        placeholder="https://docs.google.com/document/d/..."
+                        className="input-dark w-full px-3 py-2.5 rounded-lg text-sm"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Credits */}
                 <div>
@@ -530,29 +541,29 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <input
                       type="text"
-                      value={track.producedBy}
-                      onChange={e => updateTrack(idx, { producedBy: e.target.value })}
+                      value={track.credits.producedBy}
+                      onChange={e => updateTrackCredits(idx, { producedBy: e.target.value })}
                       placeholder="Produced by"
                       className="input-dark px-3 py-2.5 rounded-lg text-sm"
                     />
                     <input
                       type="text"
-                      value={track.lyricsBy}
-                      onChange={e => updateTrack(idx, { lyricsBy: e.target.value })}
+                      value={track.credits.lyricsBy}
+                      onChange={e => updateTrackCredits(idx, { lyricsBy: e.target.value })}
                       placeholder="Lyrics by"
                       className="input-dark px-3 py-2.5 rounded-lg text-sm"
                     />
                     <input
                       type="text"
-                      value={track.mixedBy}
-                      onChange={e => updateTrack(idx, { mixedBy: e.target.value })}
+                      value={track.credits.mixedBy}
+                      onChange={e => updateTrackCredits(idx, { mixedBy: e.target.value })}
                       placeholder="Mixed by"
                       className="input-dark px-3 py-2.5 rounded-lg text-sm"
                     />
                     <input
                       type="text"
-                      value={track.masteredBy}
-                      onChange={e => updateTrack(idx, { masteredBy: e.target.value })}
+                      value={track.credits.masteredBy}
+                      onChange={e => updateTrackCredits(idx, { masteredBy: e.target.value })}
                       placeholder="Mastered by"
                       className="input-dark px-3 py-2.5 rounded-lg text-sm"
                     />
@@ -598,8 +609,15 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold mb-2">Main Drive Folder Link</label>
-                <p className="text-xs text-zinc-500 mb-2">Optional: link to a shared Drive folder with all release assets</p>
+                <label className="block text-sm font-semibold mb-2">
+                  Main Drive Folder Link
+                  {useAllInOneDrive && <span className="text-red-400 ml-1">*</span>}
+                </label>
+                <p className="text-xs text-zinc-500 mb-2">
+                  {useAllInOneDrive
+                    ? 'Required: link to Drive folder with all WAV files, lyrics, and assets'
+                    : 'Optional: link to a shared Drive folder with all release assets'}
+                </p>
                 <input
                   type="url"
                   value={driveFolderLink}
@@ -626,6 +644,18 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
                 <span className="font-medium">{tracks.length}</span>
                 <span className="text-zinc-500">Explicit</span>
                 <span className="font-medium">{explicitContent ? 'Yes' : 'No'}</span>
+                {collaborations.filter(c => c.name.trim()).length > 0 && (
+                  <>
+                    <span className="text-zinc-500">Collaborations</span>
+                    <span className="font-medium">{collaborations.filter(c => c.name.trim()).map(c => c.name).join(', ')}</span>
+                  </>
+                )}
+                {features.filter(f => f.name.trim()).length > 0 && (
+                  <>
+                    <span className="text-zinc-500">Features</span>
+                    <span className="font-medium">{features.filter(f => f.name.trim()).map(f => f.name).join(', ')}</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -648,10 +678,19 @@ export default function SubmissionForm({ settings, onSubmitted }: Props) {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={!isStep4Valid}
+                disabled={!isStep4Valid || submitting || (useAllInOneDrive && !driveFolderLink.trim())}
                 className="btn-primary px-8 py-3 rounded-xl flex items-center gap-2 text-lg"
               >
-                <CheckCircle2 className="w-5 h-5" /> Submit Release
+                {submitting ? (
+                  <>
+                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5" /> Submit Release
+                  </>
+                )}
               </button>
             </div>
           </div>
